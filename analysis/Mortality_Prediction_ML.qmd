@@ -1,0 +1,1074 @@
+---
+title: "Predicting Five-Year Mortality in Head and Neck Cancer Patients"
+subtitle: "An end-to-end machine learning pipeline in R (caret + recipes) on a multimodal cohort"
+author: "Abdulrahman Alazhari"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+    theme: cosmo
+    fig-width: 7
+    fig-height: 4.5
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Overview
+
+**Aim**\
+Build and compare binary classifiers that predict **death within five years** (`death5yr`) from demographic, clinical, laboratory, genomic, gene-expression and imaging (radiomics) features, then evaluate the selected model on a held-out test set.
+
+**Data**\
+A synthetic cohort of 1,200 head and neck cancer patients with 45 predictors. No real patient is represented, so the data can be shared. The file deliberately contains the problems found in real clinical data: missing values, physiologically impossible
+data-entry errors, skewed variables, correlated predictors and a rare category.
+
+**Workflow**
+
+1.  Data quality checks (missing and impossible values).
+2.  Stratified 80/20 train/test split.
+3.  Exploratory data analysis on the training set only.
+4.  Leakage-free pre-processing with `recipes`
+5.  Ten algorithms tuned by 5-fold cross-validation with `caret`
+6.  Model comparison on cross-validated AUC, then a single evaluation on the test set.
+7.  Final model: ROC, confusion matrix, calibration, variable importance and threshold choice.
+
+## Data Dictionary
+
+The cohort has 1,200 patients, 45 predictors and one target. Variables are grouped as in the study description.
+
+### Core patient information
+
+| Variable     | Units / Values                                     | Description                                   |
+|:-------------|:---------------------------------------------------|:----------------------------------------------|
+| `ID`         | Unique ID                                          | Patient identifier (not used for modelling)   |
+| `Age`        | Years                                              | Age at diagnosis                              |
+| `Sex`        | Male / Female                                      | Biological sex                                |
+| `Country`    | UK, Ireland, Netherlands, Germany, Norway, Iceland | Country of treatment                          |
+| `Smoking`    | Never / Former / Current                           | Smoking status                                |
+| `Pack_years` | Number                                             | Packs smoked per day × number of years smoked |
+| `BMI`        | kg/m^2^                                            | Body mass index                               |
+
+: Core patient information
+
+**Note.** Core patient information may contain data-entry errors. Impossible values (for example an age of 500 years or a BMI of 0) must be recoded as missing before model fitting.
+
+### Tumour characteristics
+
+| Variable        | Units / Values                                                                                                              | Description                                           |
+|:----------------|:----------------------------------------------------------------------------------------------------------------------------|:------------------------------------------------------|
+| `HPV`           | 1 (Positive) / 0 (Negative)                                                                                                 | HPV infection status                                  |
+| `ECOG`          | 0 – 3. Scale: 0 (fully active), 1 (restricted in strenuous activity), 2 (ambulatory, unable to work), 3 (limited self-care) | Eastern Cooperative Oncology Group Performance Status |
+| `CRP`           | mg/L                                                                                                                        | C-reactive protein                                    |
+| `Tumor_subtype` | Classical / Immune / Basal                                                                                                  | Molecular subtype of tumour                           |
+| `Tumor_volume`  | cm^3^                                                                                                                       | Volume of tumour                                      |
+
+: Tumour characteristics
+
+### Blood biochemical parameters
+
+| Variable      | Units / Values | Description            |
+|:--------------|:---------------|:-----------------------|
+| `Albumin`     | g/dL           | Blood albumin level    |
+| `Neutrophils` | 10^9^/L        | Blood neutrophil level |
+| `Lymphocytes` | 10^9^/L        | Blood lymphocyte level |
+| `Hemoglobin`  | g/dL           | Blood hemoglobin level |
+
+: Blood biochemical parameters
+
+### Single nucleotide polymorphisms (SNPs)
+
+SNPs are variations at a single nucleotide position in the genome among individuals. Values are the number of minor alleles: 0 = homozygous major, 1 = heterozygous, 2 = homozygous minor.
+
+| Variable     | Units / Values | Description                                    |
+|:-------------|:---------------|:-----------------------------------------------|
+| `SNP_TP53`   | 0 / 1 / 2      | Minor-allele count for the TP53 gene variant   |
+| `SNP_CDKN2A` | 0 / 1 / 2      | Minor-allele count for the CDKN2A gene variant |
+| `SNP_FAT1`   | 0 / 1 / 2      | Minor-allele count for the FAT1 gene variant   |
+| `SNP_PIK3CA` | 0 / 1 / 2      | Minor-allele count for the PIK3CA gene variant |
+| `SNP_PTEN`   | 0 / 1 / 2      | Minor-allele count for the PTEN gene variant   |
+| `SNP_AKT1`   | 0 / 1 / 2      | Minor-allele count for the AKT1 gene variant   |
+| `SNP_NOTCH1` | 0 / 1 / 2      | Minor-allele count for the NOTCH1 gene variant |
+| `SNP_FBXW7`  | 0 / 1 / 2      | Minor-allele count for the FBXW7 gene variant  |
+
+: Single nucleotide polymorphisms
+
+### Gene expression features
+
+Normalised gene expression values (log scale).
+
+| Variable      | Units / Values        | Description          |
+|:--------------|:----------------------|:---------------------|
+| `Gene_TP53`   | Normalised expression | Expression of TP53   |
+| `Gene_CDKN2A` | Normalised expression | Expression of CDKN2A |
+| `Gene_PIK3CA` | Normalised expression | Expression of PIK3CA |
+| `Gene_PTEN`   | Normalised expression | Expression of PTEN   |
+| `Gene_NOTCH1` | Normalised expression | Expression of NOTCH1 |
+| `Gene_EGFR`   | Normalised expression | Expression of EGFR   |
+| `Gene_CCND1`  | Normalised expression | Expression of CCND1  |
+| `Gene_FAT1`   | Normalised expression | Expression of FAT1   |
+| `Gene_HRAS`   | Normalised expression | Expression of HRAS   |
+| `Gene_CASP8`  | Normalised expression | Expression of CASP8  |
+
+: Gene expression features
+
+### Derived biological scores
+
+Composite indices derived from multiple biomarkers.
+
+| Variable          | Units / Values | Description                                    |
+|:------------------|:---------------|:-----------------------------------------------|
+| `Hypoxia_score`   | Score          | Tumour oxygen deprivation level                |
+| `Immune_score`    | Score          | Immune activity in the tumour microenvironment |
+| `Cellcycle_score` | Score          | Cell proliferation activity                    |
+
+: Derived biological scores
+
+### Imaging / radiomics features
+
+Features extracted from positron emission tomography (PET) imaging.
+
+**Shape features**
+
+| Variable                 | Units / Values | Description                                                                             |
+|:-------------------------|:---------------|:----------------------------------------------------------------------------------------|
+| `Shape_ScaledSphericity` | Scaled         | How closely the shape of the region resembles a perfect sphere, normalised for size     |
+| `Shape_ScaledCompact`    | Scaled         | Compactness of the shape: how tightly the volume is packed relative to its surface area |
+| `Shape_ScaledVoxelVol`   | Scaled         | Total volume of the region of interest in voxel units                                   |
+
+**Texture features**
+
+| Variable                     | Units / Values | Description                                                                                 |
+|:-----------------------------|:---------------|:--------------------------------------------------------------------------------------------|
+| `Texture_ScaledGLCMContrast` | Scaled         | Local intensity variation; higher values mean greater contrast between neighbouring voxels  |
+| `Texture_ScaledGLCMEntropy`  | Scaled         | Randomness or disorder in voxel intensity patterns; higher entropy means more heterogeneity |
+| `Texture_ScaledGLCMSumAvg`   | Scaled         | Average of summed voxel-pair intensities; reflects overall intensity co-occurrence          |
+
+**Intensity features**
+
+| Variable               | Units / Values | Description                                                                                   |
+|:-----------------------|:---------------|:----------------------------------------------------------------------------------------------|
+| `Intensity_ScaledMean` | Scaled         | Average intensity of all voxels in the region of interest                                     |
+| `Intensity_Skew`       | Number         | Asymmetry of the intensity distribution; positive = tail toward higher values                 |
+| `Intensity_Kurtosis`   | Number         | Peakedness of the intensity distribution; high kurtosis = sharp peak, low = flat distribution |
+
+: Imaging / radiomics features
+
+### Target variable
+
+| Variable   | Units / Values          | Description                                                            |
+|:-----------|:------------------------|:-----------------------------------------------------------------------|
+| `death5yr` | 0 (Survived) / 1 (Died) | Whether the patient died within 5 years since recruitment to the study |
+
+: Target variable
+
+# 1. Setup
+
+```{r setup}
+library(tidyverse)
+library(caret)
+library(recipes)
+library(pROC)
+library(DescTools)
+library(corrplot)
+library(knitr)
+library(here)
+
+# Packages used by caret / recipes behind the scenes: fail early with a clear message
+needed <- c("glmnet", "pls", "klaR", "pamr", "gbm", "xgboost", "nnet", "RSNNS", "gower")
+not_installed <- needed[!vapply(needed, requireNamespace, logical(1), quietly = TRUE)]
+if (length(not_installed)) stop("Please install: ", paste(not_installed, collapse = ", "))
+
+theme_set(theme_minimal(base_size = 12))
+set.seed(1234)
+
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+f3 <- function(x) formatC(x, format = "f", digits = 3)
+
+# Optional parallel processing 
+use_parallel <- FALSE
+if (use_parallel) {
+  library(doParallel)
+  cl <- makePSOCKcluster(max(1, parallel::detectCores() - 1))
+  registerDoParallel(cl)
+}
+```
+
+# 2. Read data and define the target
+
+```{r read-data}
+DF <- read.csv(here::here("data/synthetic_hnscc_data.csv"))
+dim(DF)
+str(DF[, 1:12])
+```
+
+`caret` treats the **first factor level as the positive class**, so the target is coded with `"Died"` first. Sensitivity therefore means the ability to identify patients who die within five years.
+
+```{r target}
+y_col <- "death5yr"
+DF[[y_col]] <- factor(DF[[y_col]], levels = c(1, 0), labels = c("Died", "Survived"))
+levels(DF[[y_col]])
+table(DF[[y_col]])
+round(prop.table(table(DF[[y_col]])), 3)
+```
+
+## Feature groups
+
+```{r features}
+# Categorical (nominal) features
+x_bin <- c("Sex", "HPV")
+x_nom <- c("Country", "Smoking", "Tumor_subtype")
+cat_cols <- c(x_bin, x_nom)
+
+# Ordinal feature
+ord_cols <- "ECOG"
+
+# Numeric features: everything else except ID, categorical, ordinal and the target
+num_cols <- setdiff(names(DF), c("ID", cat_cols, ord_cols, y_col))
+
+X_cols <- c(cat_cols, ord_cols, num_cols)
+c(categorical = length(cat_cols), ordinal = length(ord_cols), numeric = length(num_cols), total = length(X_cols))
+```
+
+# 3. Data Quality
+
+## 3.1 Missing values
+
+```{r missing}
+miss_tbl <- DF %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing") %>%
+  mutate(Percent = round(100 * Missing / nrow(DF), 1)) %>%
+  filter(Missing > 0) %>%
+  arrange(desc(Missing))
+kable(miss_tbl, caption = "Variables with missing values")
+```
+
+```{r missing-plot}
+#| fig-cap: "Percentage of missing values by variable"
+ggplot(miss_tbl, aes(reorder(Variable, Percent), Percent)) +
+  geom_col(fill = "#2C7FB8") + coord_flip() +
+  labs(x = NULL, y = "% missing")
+```
+
+## 3.2 Physiologically impossible values
+
+The core patient information can contain data-entry errors. Impossible values are **recoded as missing (`NA`)** inside the pre-processing recipe so that they are imputed, not learned from. The limits below are clinical, not data-driven, which avoids
+leakage.
+
+```{r limits}
+age_min <- 18;  age_max <- 110     # adult cohort; ages above 110 are impossible
+bmi_min <- 10;  bmi_max <- 80      # BMI outside this range is not compatible with life
+py_min  <- 0;   py_max  <- 200     # pack-years cannot be negative or implausibly large
+
+limits <- tibble(Variable = c("Age", "BMI", "Pack_years"),
+                 Lower = c(age_min, bmi_min, py_min),
+                 Upper = c(age_max, bmi_max, py_max))
+
+impossible <- pmap_dfr(limits, function(Variable, Lower, Upper) {
+  x   <- DF[[Variable]]
+  bad <- !is.na(x) & (x < Lower | x > Upper)
+  tibble(Variable, Lower, Upper, n_impossible = sum(bad),
+         values = paste(sort(unique(x[bad])), collapse = ", "))
+})
+kable(impossible, caption = "Impossible values detected, by clinical limits")
+```
+
+A consistency rule also holds: never-smokers must have `Pack_years = 0` (violations: `r sum(DF$Smoking == "Never" & DF$Pack_years > 0, na.rm = TRUE)`).
+
+```{r clean-helper}
+# Same rules as the recipe, used only for exploratory plots
+clean_impossible <- function(d) {
+  d %>% mutate(
+    Age        = ifelse(Age < age_min | Age > age_max, NA, Age),
+    BMI        = ifelse(BMI < bmi_min | BMI > bmi_max, NA, BMI),
+    Pack_years = ifelse(Pack_years < py_min | Pack_years > py_max, NA, Pack_years)
+  )
+}
+```
+
+# 4. Train/Test Split
+
+A **stratified** 80/20 split keeps the mortality rate the same in both sets. The test set is not touched until the final evaluation.
+
+```{r split}
+set.seed(1234)
+idx   <- caret::createDataPartition(DF[[y_col]], p = 0.80, list = FALSE)
+tr_DF <- DF[idx, , drop = FALSE]
+te_DF <- DF[-idx, , drop = FALSE]
+
+rbind(train = c(n = nrow(tr_DF), prop.table(table(tr_DF[[y_col]]))),
+      test  = c(n = nrow(te_DF), prop.table(table(te_DF[[y_col]])))) %>%
+  round(3) %>% kable(caption = "Size and class balance of each set")
+```
+
+# 5. Exploratory Data Analysis (training set only)
+
+## 5.1 Single-variable summaries (DescTools)
+
+`DescTools::Desc()` gives the distribution, quantiles, skewness, kurtosis and extreme values, with plots. The impossible values (for example in `Age` and `BMI`) show up in the `lowest` and `highest` lines and in the plots.
+
+```{r eda-desc-core}
+#| fig-height: 5
+DescTools::Desc(tr_DF[, c("Age", "BMI", "Pack_years")], plotit = TRUE)
+```
+
+```{r eda-desc-more}
+#| fig-height: 5
+DescTools::Desc(tr_DF[, c("CRP", "Tumor_volume", "Albumin", "Smoking", "ECOG", "Tumor_subtype")], plotit = TRUE)
+```
+
+## 5.2 Outcome versus predictors
+
+```{r eda-desc-target}
+#| fig-height: 5
+DescTools::Desc(death5yr ~ Age + Smoking + Tumor_subtype, data = clean_impossible(tr_DF), plotit = TRUE)
+```
+
+```{r eda-class-plots}
+#| fig-cap: "Distribution of key continuous predictors by outcome"
+clean_tr <- clean_impossible(tr_DF)
+clean_tr %>%
+  select(all_of(y_col), Age, Tumor_volume, Cellcycle_score, Albumin, Shape_ScaledSphericity) %>%
+  pivot_longer(-all_of(y_col), names_to = "Feature", values_to = "Value") %>%
+  ggplot(aes(Value, fill = .data[[y_col]])) +
+  geom_density(alpha = .5) +
+  facet_wrap(~Feature, scales = "free") +
+  labs(fill = "5-year outcome", y = "Density")
+```
+
+```{r eda-cat-plots}
+#| fig-cap: "Mortality by categorical predictors"
+tr_DF %>%
+  select(all_of(c(y_col, "Smoking", "Tumor_subtype", "HPV", "ECOG"))) %>%
+  mutate(across(c(HPV, ECOG), as.character)) %>%
+  pivot_longer(-all_of(y_col), names_to = "Feature", values_to = "Level") %>%
+  ggplot(aes(Level, fill = .data[[y_col]])) +
+  geom_bar(position = "fill") +
+  facet_wrap(~Feature, scales = "free_x") +
+  labs(y = "Proportion", fill = "5-year outcome")
+```
+
+## 5.3 Skewness and correlation
+
+```{r eda-skew}
+skew_tbl <- clean_tr %>%
+  summarise(across(all_of(num_cols), ~ DescTools::Skew(.x, na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Skewness") %>%
+  arrange(desc(abs(Skewness)))
+kable(head(skew_tbl, 8), digits = 2, caption = "Most skewed numeric predictors (candidates for Yeo-Johnson)")
+```
+
+```{r eda-corr}
+#| fig-height: 7
+#| fig-cap: "Correlation matrix of the numeric predictors"
+M <- cor(clean_tr[, num_cols], use = "pairwise.complete.obs")
+corrplot(M, method = "color", type = "upper", order = "hclust",
+         tl.cex = 0.55, tl.col = "black", cl.cex = 0.7)
+
+as.data.frame(as.table(M)) %>%
+  filter(as.integer(Var1) < as.integer(Var2), abs(Freq) > 0.7) %>%
+  arrange(desc(abs(Freq))) %>%
+  kable(digits = 2, col.names = c("Variable 1", "Variable 2", "Correlation"),
+        caption = "Highly correlated pairs (|r| > 0.7): the reason for a correlation filter")
+```
+
+# 6. Pre-processing with `recipes`
+
+Every step is **estimated on the training data only** and then applied identically to any new data, so no information from the test set leaks into the model. Inside cross-validation, `caret` re-estimates the recipe within each fold.
+
+| Step                                                             | Purpose                                                                                |
+|:-----------------------------------------------------------------|:---------------------------------------------------------------------------------------|
+| `step_rm(ID)`                                                    | Drop the identifier                                                                    |
+| `step_mutate`                                                    | Code types (HPV nominal, ECOG ordered) and set impossible values to `NA`               |
+| `step_string2factor`, `step_novel`, `step_unknown`, `step_other` | Safe handling of categories: unseen levels, missing labels, rare levels (\< 1%) pooled |
+| `step_impute_knn`                                                | Multivariate KNN imputation (5 neighbours; Gower distance handles mixed data)          |
+| `step_ordinalscore`                                              | ECOG as a numeric score                                                                |
+| `step_dummy`                                                     | Dummy variables for nominal predictors                                                 |
+| `step_zv`, `step_nzv`                                            | Remove constant and near-constant predictors                                           |
+| `step_YeoJohnson`                                                | Reduce skewness of continuous predictors                                               |
+| `step_center`, `step_scale`                                      | Put all predictors on the same scale                                                   |
+| `step_corr`                                                      | Drop one of each pair of predictors with \|r\| \> 0.95                                 |
+
+```{r mod-form}
+mod_form <- as.formula(paste0(y_col, " ~ ."))
+mod_form
+```
+
+```{r recipe}
+rec <- recipe(mod_form, data = tr_DF) |>
+  step_rm(ID) |>
+
+  # Types, and impossible values -> NA so that they are imputed
+  step_mutate(
+    HPV  = as.character(HPV),
+    ECOG = ordered(as.character(ECOG), levels = c("0", "1", "2", "3")),
+    Age        = ifelse(Age < !!age_min | Age > !!age_max, NA, Age),
+    BMI        = ifelse(BMI < !!bmi_min | BMI > !!bmi_max, NA, BMI),
+    Pack_years = ifelse(Pack_years < !!py_min | Pack_years > !!py_max, NA, Pack_years)
+  ) |>
+
+  # Categorical safeguards
+  step_string2factor(all_of(cat_cols)) |>
+  step_novel(all_of(cat_cols), new_level = "NewLvl") |>
+  step_unknown(all_of(cat_cols), new_level = "Unknown") |>
+  step_other(all_of(cat_cols), threshold = 0.01, other = "OtherLvl") |>
+
+  # Multivariate KNN imputation
+  step_impute_knn(all_predictors(), neighbors = 5) |>
+
+  # Ordinal score, then dummy encoding
+  step_ordinalscore(all_of(ord_cols)) |>
+  step_dummy(all_nominal_predictors(), one_hot = FALSE) |>
+
+  # Stability filters
+  step_zv(all_predictors()) |>
+  step_nzv(all_predictors()) |>
+
+  # Skewness correction for continuous / ordinal features only (any_of: tolerant if a step removed a column)
+  step_YeoJohnson(any_of(num_cols), any_of(ord_cols)) |>
+
+  # Centre and scale continuous and ordinal predictors (dummies stay 0/1)
+  step_center(all_numeric_predictors()) |>
+  step_scale(all_numeric_predictors()) |>
+
+  # Multicollinearity filter
+  step_corr(all_numeric_predictors(), threshold = 0.95)
+
+rec
+```
+
+## Check what the recipe does
+
+```{r recipe-check}
+rec_prep <- prep(rec, training = tr_DF)
+baked    <- bake(rec_prep, new_data = NULL)
+
+step_ids <- function(cls) which(map_chr(rec_prep$steps, ~ class(.x)[1]) == cls)
+dropped  <- function(cls) tidy(rec_prep, number = step_ids(cls))$terms
+
+tibble(Item = c("Predictors before pre-processing", "Predictors after pre-processing",
+                "Missing values remaining", "Removed by near-zero variance filter",
+                "Removed by correlation filter"),
+       Value = c(length(X_cols), ncol(baked) - 1, sum(is.na(baked)),
+                 paste(dropped("step_nzv"), collapse = ", ") %>% ifelse(. == "", "none", .),
+                 paste(dropped("step_corr"), collapse = ", ") %>% ifelse(. == "", "none", .))) %>%
+  kable(caption = "Effect of the pre-processing recipe on the training set")
+```
+
+# 7. Cross-Validation Strategy
+
+All models use **the same five stratified folds**, so their cross-validated results are directly comparable. Tuning optimises the area under the ROC curve (AUC), which does not depend on a probability threshold.
+
+```{r x-validation}
+set.seed(1234)
+folds <- caret::createFolds(tr_DF[[y_col]], k = 5, returnTrain = TRUE)
+
+# AUC, sensitivity, specificity (twoClassSummary) plus accuracy and kappa
+fiveStats <- function(data, lev = NULL, model = NULL) {
+  c(caret::twoClassSummary(data, lev, model), caret::defaultSummary(data, lev, model))
+}
+
+ctrl <- caret::trainControl(
+  method = "cv", number = 5, index = folds,
+  classProbs = TRUE, summaryFunction = fiveStats,
+  search = "grid", selectionFunction = "best",
+  savePredictions = "final", verboseIter = FALSE,
+  allowParallel = use_parallel
+)
+```
+
+# 8. Model Training
+
+Ten algorithms from five families are tuned on small grids. If one model fails to fit, it is reported and skipped so the rest of the report still runs.
+
+| Family          | Method (`caret`)                | Tuned parameters                                                                                                |
+|:----------------|:--------------------------------|:----------------------------------------------------------------------------------------------------------------|
+| Linear          | `glmnet` (elastic net), `pls`   | `alpha`, `lambda`; `ncomp`                                                                                      |
+| Generative      | `rda`, `nb`                     | `gamma`, `lambda`; `fL`, `usekernel`, `adjust`                                                                  |
+| Distance-based  | `knn`, `pam`                    | `k`; `threshold`                                                                                                |
+| Tree ensembles  | `gbm`, `xgbTree` (custom model) | trees, depth, learning rate, …; boosting rounds, depth, `eta`, `gamma`, column/row sampling, `min_child_weight` |
+| Neural networks | `nnet`, `mlp`                   | `size`, `decay`; `size`                                                                                         |
+
+## 8.1 A custom `caret` model for XGBoost
+
+`caret`'s built-in `xgbTree` fails with recent `xgboost` releases (3.x): it tries to store extra information inside the booster object, which the new object type does not allow (`ALTLIST classes must provide a Set_elt method`). The custom model below keeps
+the booster inside an ordinary list, so it works with both old and new versions of `xgboost`. The event class is the first factor level (`"Died"`), and the booster is also stored as raw bytes so that a model cached with `saveRDS()` can be restored in a
+later R session.
+
+```{r xgb-custom}
+# Predicted probability of the event class (first factor level), robust to a cached model:
+# if the booster handle is no longer valid after readRDS(), rebuild it from the raw bytes.
+xgb_p1 <- function(modelFit, newdata) {
+  X <- as.matrix(newdata)
+  tryCatch(
+    as.numeric(predict(modelFit$booster, X)),
+    error = function(e) as.numeric(predict(xgboost::xgb.load.raw(modelFit$raw), X))
+  )
+}
+
+xgbTree_3x <- list(
+  label   = "XGBoost Tree (xgboost >= 3.x, caret custom)",
+  library = "xgboost",
+  type    = "Classification",
+
+  parameters = data.frame(
+    parameter = c("nrounds", "max_depth", "eta", "gamma", "colsample_bytree", "min_child_weight", "subsample"),
+    class     = rep("numeric", 7),
+    label     = c("Boosting Iterations", "Max Tree Depth", "Shrinkage", "Gamma",
+                  "Subsample Ratio of Columns", "Min Child Weight", "Subsample Ratio of Rows"),
+    stringsAsFactors = FALSE
+  ),
+
+  # caret needs a 'grid' function for custom models (even if tuneGrid is supplied)
+  grid = function(x, y, len = NULL, search = "grid") {
+    if (is.null(len)) len <- 3
+    if (search == "grid") {
+      expand.grid(
+        nrounds = round(seq(100, 400, length.out = len)),
+        max_depth = unique(round(seq(2, 6, length.out = len))),
+        eta = c(0.05, 0.1)[1:min(2, len)],
+        gamma = c(0, 1)[1:min(2, len)],
+        colsample_bytree = 0.8,
+        min_child_weight = 1,
+        subsample = 0.8
+      )
+    } else {
+      data.frame(
+        nrounds = sample(seq(100, 800, by = 50), len, replace = TRUE),
+        max_depth = sample(2:8, len, replace = TRUE),
+        eta = exp(runif(len, log(0.01), log(0.3))),
+        gamma = runif(len, 0, 5),
+        colsample_bytree = runif(len, 0.5, 1.0),
+        min_child_weight = runif(len, 1, 10),
+        subsample = runif(len, 0.5, 1.0)
+      )
+    }
+  },
+
+  loop = NULL,
+
+  fit = function(x, y, wts, param, lev, last, classProbs, ...) {
+    dots <- list(...)
+    X    <- as.matrix(x)
+    y01  <- as.numeric(y == lev[1])            # lev[1] is the event class ("Died")
+    dtrain <- xgboost::xgb.DMatrix(data = X, label = y01)
+
+    user_params <- dots$params
+    if (is.null(user_params)) user_params <- list()
+
+    params <- modifyList(
+      list(
+        objective        = "binary:logistic",
+        eval_metric      = "auc",
+        eta              = param$eta,
+        max_depth        = as.integer(param$max_depth),
+        gamma            = param$gamma,
+        colsample_bytree = param$colsample_bytree,
+        min_child_weight = param$min_child_weight,
+        subsample        = param$subsample
+      ),
+      user_params
+    )
+
+    bst <- xgboost::xgb.train(
+      params  = params,
+      data    = dtrain,
+      nrounds = as.integer(param$nrounds),
+      verbose = 0
+    )
+
+    list(booster = bst,
+         raw     = tryCatch(xgboost::xgb.save.raw(bst), error = function(e) NULL),
+         lev     = lev,
+         xNames  = colnames(X))
+  },
+
+  prob = function(modelFit, newdata, submodels = NULL) {
+    p1  <- xgb_p1(modelFit, newdata)
+    out <- data.frame(tmp1 = p1, tmp2 = 1 - p1)
+    colnames(out) <- modelFit$lev
+    out
+  },
+
+  predict = function(modelFit, newdata, submodels = NULL) {
+    p1 <- xgb_p1(modelFit, newdata)
+    factor(ifelse(p1 >= 0.5, modelFit$lev[1], modelFit$lev[2]), levels = modelFit$lev)
+  },
+
+  levels = function(x) x$lev,
+  sort   = function(x) x[order(x[, 1]), ]
+)
+```
+
+## 8.2 Tuning grids and the fitting function
+
+```{r model-specs}
+model_specs <- list(
+  glmnet = list(method = "glmnet",
+                grid = expand.grid(alpha = c(0, 0.25, 0.5, 0.75, 1),
+                                   lambda = 10^seq(-4, -0.5, length.out = 10)),
+                args = list()),
+  pls    = list(method = "pls",
+                grid = data.frame(ncomp = 1:12),
+                args = list()),
+  rda    = list(method = "rda",
+                grid = expand.grid(gamma = c(0, 0.25, 0.5, 0.75, 1),
+                                   lambda = c(0.25, 0.5, 0.75, 1)),
+                args = list()),
+  nb     = list(method = "nb",
+                grid = expand.grid(fL = 1, usekernel = TRUE, adjust = c(1, 1.5, 2)),   # kernel densities + Laplace smoothing avoid zero probabilities
+                args = list()),
+  knn    = list(method = "knn",
+                grid = data.frame(k = seq(5, 45, by = 4)),
+                args = list()),
+  pam    = list(method = "pam",
+                grid = data.frame(threshold = seq(0, 3, length.out = 15)),
+                args = list()),
+  gbm    = list(method = "gbm",
+                grid = expand.grid(n.trees = c(100, 200, 300), interaction.depth = 1:3, shrinkage = c(0.01, 0.05, 0.1), n.minobsinnode = c(10, 20)), args = list(verbose = FALSE)),
+  
+  xgbTree = list(method = xgbTree_3x, # the custom model defined above
+                 grid = expand.grid(nrounds = c(100, 200), max_depth = c(2, 3, 4), eta = c(0.03, 0.1), gamma = 0, colsample_bytree = c(0.6, 0.8), min_child_weight = c(1, 5), subsample = c(0.7, 0.9)),
+                 args = list()),
+  
+  nnet   = list(method = "nnet",
+                grid = expand.grid(size = c(1, 3, 5, 7), decay = c(0.01, 0.1, 1)),
+                args = list(trace = FALSE, maxit = 300, MaxNWts = 5000)),
+  mlp    = list(method = "mlp",
+                grid = data.frame(size = c(1, 3, 5, 7)),
+                args = list())
+)
+
+fit_one <- function(name, spec) {
+  message(">> Training: ", name)
+  run <- function() {
+    set.seed(1234)  # same seed for every model
+    do.call(caret::train,
+            c(list(x = rec, data = tr_DF, method = spec$method, metric = "ROC", trControl = ctrl, tuneGrid = spec$grid), spec$args))
+  }
+  # A single failing model must not stop the whole report: report it and carry on.
+  # Naive Bayes warns about "0 probability" for extreme observations; that is expected noise.
+  tryCatch(if (name == "nb") suppressWarnings(run()) else run(),
+           error = function(e) { message("!! ", name, " failed: ", conditionMessage(e)); NULL })
+}
+```
+
+Training takes several minutes. The fitted models are cached in `output/models.rds`, so re-rendering the report is fast. Delete the file to force a re-fit.
+
+```{r train}
+dir.create(here::here("output"), showWarnings = FALSE)
+models_path <- here::here("output", "models.rds")
+
+if (file.exists(models_path)) {
+  models <- readRDS(models_path)
+} else {
+  models <- imap(model_specs, function(spec, name) fit_one(name, spec))
+  failed <- names(models)[map_lgl(models, is.null)]
+  models <- compact(models)                       # drop models that failed to fit
+  if (length(failed)) {
+    message("Models that failed and were dropped: ", paste(failed, collapse = ", "))
+  } else {
+    saveRDS(models, models_path)                  # cache only when every model fitted
+  }
+}
+names(models)
+```
+
+# 9. Model comparison
+
+## 9.1 Cross-validated performance
+
+```{r cv-compare}
+cv_tbl <- map_dfr(models, caret::getTrainPerf, .id = "Model") %>%
+  transmute(Model, ROC = TrainROC, Sensitivity = TrainSens, Specificity = TrainSpec,
+            Accuracy = TrainAccuracy, Kappa = TrainKappa) %>%
+  arrange(desc(ROC))
+kable(cv_tbl, digits = 3, caption = "5-fold cross-validated performance of the tuned models (training set)")
+```
+
+```{r cv-plot}
+#| fig-cap: "Cross-validated AUC across the five folds"
+rs <- caret::resamples(models)
+rs$values %>%
+  dplyr::select(Resample, ends_with("~ROC")) %>%
+  pivot_longer(-Resample, names_to = "Model", values_to = "ROC") %>%
+  mutate(Model = sub("~ROC", "", Model)) %>%
+  ggplot(aes(reorder(Model, ROC, median), ROC)) +
+  geom_boxplot(fill = "#9ECAE1") +
+  geom_jitter(width = .1, alpha = .6) +
+  coord_flip() +
+  labs(x = NULL, y = "Cross-validated AUC")
+```
+
+```{r best-tune}
+best_tune <- map_dfr(models, function(m) {
+  bt <- m$bestTune
+  tibble(`Selected hyper-parameters` = paste(names(bt), unlist(bt), sep = " = ", collapse = ", "))
+}, .id = "Model")
+kable(best_tune, caption = "Hyper-parameters selected by cross-validation")
+```
+
+## 9.2 Training and test performance of every model
+
+```{r perf-helper}
+perf_metrics <- function(fit, newdata) {
+  prob <- predict(fit, newdata, type = "prob")[["Died"]]
+  cls  <- predict(fit, newdata)
+  cm   <- caret::confusionMatrix(cls, newdata[[y_col]], positive = "Died")
+  auc  <- as.numeric(pROC::auc(pROC::roc(newdata[[y_col]], prob,
+                                         levels = c("Survived", "Died"), direction = "<", quiet = TRUE)))
+  tibble(Accuracy = cm$overall[["Accuracy"]],
+         `Balanced accuracy` = cm$byClass[["Balanced Accuracy"]],
+         Sensitivity = cm$byClass[["Sensitivity"]],
+         Specificity = cm$byClass[["Specificity"]],
+         PPV = cm$byClass[["Pos Pred Value"]],
+         NPV = cm$byClass[["Neg Pred Value"]],
+         Kappa = cm$overall[["Kappa"]],
+         AUC = auc)
+}
+```
+
+```{r perf-tables}
+perf_te <- map_dfr(models, ~ perf_metrics(.x, te_DF), .id = "Model") %>% arrange(desc(AUC))
+perf_tr <- map_dfr(models, ~ perf_metrics(.x, tr_DF), .id = "Model") %>% arrange(desc(AUC))
+
+kable(perf_te, digits = 3, caption = "Test-set performance (unseen data; threshold 0.5)")
+kable(perf_tr, digits = 3, caption = "Training-set performance (apparent performance)")
+```
+
+```{r overfit-plot}
+#| fig-cap: "Training versus test AUC: a large gap indicates over-fitting"
+bind_rows(Train = perf_tr, Test = perf_te, .id = "Set") %>%
+  ggplot(aes(reorder(Model, AUC), AUC, fill = Set)) +
+  geom_col(position = "dodge") +
+  coord_flip(ylim = c(0.5, 1)) +
+  labs(x = NULL, y = "AUC")
+```
+
+# 10. Final Model
+
+The final model is selected using **cross-validated AUC on the training set**, not the test set. The test set is then used once to report generalisation, so the test estimate stays unbiased.
+
+```{r final-select}
+best_name <- cv_tbl$Model[which.max(cv_tbl$ROC)]
+fit_final <- models[[best_name]]
+best_name
+fit_final
+```
+
+The selected model is **`r best_name`** (cross-validated AUC = `r f3(max(cv_tbl$ROC))`).
+
+## 10.1 Performance on training and test data
+
+```{r final-predict}
+tr_class <- predict(fit_final, newdata = tr_DF)
+tr_prob  <- predict(fit_final, newdata = tr_DF, type = "prob")[["Died"]]
+te_class <- predict(fit_final, newdata = te_DF)
+te_prob  <- predict(fit_final, newdata = te_DF, type = "prob")[["Died"]]
+
+roc_tr <- pROC::roc(tr_DF[[y_col]], tr_prob, levels = c("Survived", "Died"), direction = "<", quiet = TRUE)
+roc_te <- pROC::roc(te_DF[[y_col]], te_prob, levels = c("Survived", "Died"), direction = "<", quiet = TRUE)
+ci_te  <- pROC::ci.auc(roc_te)
+
+cm_tr <- caret::confusionMatrix(tr_class, tr_DF[[y_col]], positive = "Died")
+cm_te <- caret::confusionMatrix(te_class, te_DF[[y_col]], positive = "Died")
+
+bind_rows(Train = perf_metrics(fit_final, tr_DF), Test = perf_metrics(fit_final, te_DF), .id = "Set") %>%
+  kable(digits = 3, caption = "Final model: performance at the default 0.5 threshold")
+```
+
+```{r final-roc}
+#| fig-cap: "ROC curves of the final model"
+pROC::ggroc(list(Train = roc_tr, Test = roc_te), linewidth = 1) +
+  geom_abline(intercept = 1, slope = 1, linetype = "dashed", colour = "grey50") +
+  coord_equal() +
+  labs(x = "Specificity", y = "Sensitivity", colour = NULL)
+```
+
+```{r final-cm}
+cat("--- Test set confusion matrix ---\n")
+print(cm_te)
+```
+
+On the test set the final model achieved an AUC of **`r f3(as.numeric(pROC::auc(roc_te)))`** (95% CI `r f3(ci_te[1])` to `r f3(ci_te[3])`), accuracy `r f3(cm_te$overall[["Accuracy"]])`, sensitivity `r f3(cm_te$byClass[["Sensitivity"]])` and specificity
+`r f3(cm_te$byClass[["Specificity"]])`. The training AUC was `r f3(as.numeric(pROC::auc(roc_tr)))`.
+
+## 10.2 Calibration
+
+A well-calibrated model produces predicted probabilities that match the observed event rates. Patients are grouped into deciles of predicted risk.
+
+```{r final-calibration}
+#| fig-cap: "Calibration of the final model (deciles of predicted risk, 95% confidence intervals)"
+calib <- bind_rows(
+  tibble(Set = "Train", prob = tr_prob, obs = as.integer(tr_DF[[y_col]] == "Died")),
+  tibble(Set = "Test",  prob = te_prob, obs = as.integer(te_DF[[y_col]] == "Died"))
+) %>%
+  dplyr::group_by(Set) %>%
+  mutate(bin = ntile(prob, 10)) %>%
+  group_by(Set, bin) %>%
+  summarise(n = n(), deaths = sum(obs),
+            predicted = mean(prob), observed = mean(obs), .groups = "drop") %>%
+  mutate(lower = DescTools::BinomCI(deaths, n, method = "wilson")[, "lwr.ci"],
+         upper = DescTools::BinomCI(deaths, n, method = "wilson")[, "upr.ci"])
+
+ggplot(calib, aes(predicted, observed, colour = Set)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", colour = "grey50") +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .02, alpha = .6) +
+  geom_line() + geom_point(size = 2) +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(x = "Mean predicted probability of death", y = "Observed proportion who died")
+
+calib
+```
+
+## 10.3 Variable importance
+
+```{r final-importance}
+#| fig-cap: "Most important predictors of the final model"
+vi <- tryCatch(caret::varImp(fit_final), error = function(e) NULL)
+if (!is.null(vi)) {
+  plot(vi, top = 15)
+} else {
+  message("Variable importance is not available for this model type.")
+}
+```
+
+## 10.4 Choosing a decision threshold
+
+The default threshold of 0.5 is not always clinically appropriate. Missing a patient who will die (a false negative) may cost more than a false alarm, so the threshold can be chosen separately from the model.
+
+The threshold is chosen on the **out-of-fold cross-validated predictions** (`fit_final$pred`, kept by `savePredictions = "final"`). Each training patient was predicted by a model that never saw that patient, so these probabilities are honest. Predictions
+of the final model on its own training patients would be over-confident and would give a biased threshold. Here the threshold maximises Youden's index (sensitivity + specificity − 1), which weights both error types equally; a clinical application could
+instead require a minimum sensitivity. The chosen threshold is then evaluated **once** on the test set.
+
+```{r final-threshold}
+# Out-of-fold predictions of the chosen tuning setting: one row per training patient
+oof <- fit_final$pred
+stopifnot(nrow(oof) == nrow(tr_DF))
+
+roc_cv <- pROC::roc(oof$obs, oof$Died, levels = c("Survived", "Died"), direction = "<", quiet = TRUE)
+
+thr <- pROC::coords(roc_cv, x = "best", best.method = "youden",
+                    ret = "threshold", transpose = FALSE)
+thr <- as.numeric(thr$threshold)[1]
+
+# Cross-validated sensitivity / specificity / accuracy at the chosen threshold
+cv_at_thr <- pROC::coords(roc_cv, x = thr, input = "threshold",
+                          ret = c("sensitivity", "specificity"), transpose = FALSE)
+cv_acc <- mean((oof$Died >= thr) == (oof$obs == "Died"))
+
+# Test set: default threshold versus the cross-validated threshold
+te_class_thr <- factor(ifelse(te_prob >= thr, "Died", "Survived"), levels = c("Died", "Survived"))
+cm_te_thr <- caret::confusionMatrix(te_class_thr, te_DF[[y_col]], positive = "Died")
+
+tibble(Evaluation = c("Cross-validation (threshold chosen here)", "Test, default threshold", "Test, chosen threshold"),
+       Threshold   = c(thr, 0.5, thr),
+       Sensitivity = c(cv_at_thr$sensitivity, cm_te$byClass[["Sensitivity"]], cm_te_thr$byClass[["Sensitivity"]]),
+       Specificity = c(cv_at_thr$specificity, cm_te$byClass[["Specificity"]], cm_te_thr$byClass[["Specificity"]]),
+       Accuracy    = c(cv_acc, cm_te$overall[["Accuracy"]], cm_te_thr$overall[["Accuracy"]])) %>%
+  kable(digits = 3, caption = "Effect of the decision threshold (chosen on cross-validated predictions)")
+```
+
+# 11. Discussion
+
+## 11.1 What the dataset implies for modelling
+
+The choice of algorithm should follow the structure of the data. The features of this cohort that matter most are:
+
+**Moderate sample size:** `r nrow(tr_DF)` training patients (`r sum(tr_DF[[y_col]] == "Died")` deaths and `r sum(tr_DF[[y_col]] == "Survived")` survivors) for `r length(X_cols)` predictors. This is enough for simple and regularised models, but not for very
+flexible ones, which tend to fit noise.
+
+**Many weak or uninformative predictors:** Roughly half of the genes, SNPs and imaging features carry little independent information about death. Methods that shrink or ignore such predictors have an advantage.
+
+**Correlated blocks:** Gene expression, the derived scores and the radiomics features move together (several pairs with \|r\| above 0.7, see the correlation plot). Models differ strongly in how they treat redundant information.
+
+**Mostly additive effects:** The main clinical and biological effects act roughly additively on the log-odds of death, with only minor non-linear terms and interactions (the outcome was simulated in `scripts/simulate_hnscc_data.py`). Linear models match
+this structure; flexible models have to learn it.
+
+**Mixed predictor types:** Continuous, skewed, binary, count (SNP) and ordinal predictors, handled by the recipe (dummy coding, Yeo-Johnson, scaling).
+
+**Mild class imbalance:** About `r f2(100 * mean(tr_DF[[y_col]] == "Died"))`% of patients died, so a vote-based or threshold-based rule at 0.5 leans towards the majority class (survival).
+
+## 11.2 How the models differ
+
+| Model | Core idea | Decision boundary | Treatment of correlated predictors | Main safeguard against over-fitting | Main risk on this dataset |
+|:---|:---|:---|:---|:---|:---|
+| `glmnet` | Logistic regression with an elastic-net penalty | Linear in the log-odds | Ridge part shares weight; lasso part selects | `alpha`, `lambda` | Cannot find interactions or non-linear effects |
+| `pls` | Regress on a few latent components that maximise covariance with the outcome | Linear | Built for collinearity | Number of components | Scores are not true probabilities; ignores non-linearity |
+| `rda` | Gaussian classes; `lambda` blends class-specific and pooled covariances (LDA at 1), `gamma` shrinks towards a diagonal | Linear to quadratic | Models the full covariance | `gamma`, `lambda` | Gaussian assumption; noisy covariances |
+| `nb` | Product of marginal class-conditional densities | Non-linear marginals, no interactions | Assumes independence, so double counts | Smoothing, bandwidth | Over-confident probabilities |
+| `knn` | Majority vote of the k most similar patients | Local, non-parametric | Redundant predictors inflate distances | `k` | Curse of dimensionality |
+| `pam` | Class centroids shrunk by soft-thresholding | Linear (diagonal covariance) | Ignores correlation | Shrinkage threshold | Designed for p much larger than n |
+| `gbm` | Sequence of shallow trees fitted to the logistic-loss gradient | Non-linear, interactions | Robust | Depth, shrinkage, trees | Needs many steps to approximate smooth effects |
+| `xgbTree` | Regularised boosted trees with sampling | Non-linear, interactions | Robust; column subsampling | `gamma`, `eta`, subsampling, depth | As `gbm`, but more regularised |
+| `nnet` | One hidden layer with weight decay | Non-linear | Shared hidden units | Weight decay, few units | Local optima, start-dependent |
+| `mlp` | One hidden layer trained by back-propagation | Non-linear | Shared hidden units | Number of units only | Higher variance, random starts |
+
+## 11.3 Model by Model
+
+```{r disc-prep}
+# Helpers and summary quantities used in the text below
+cv_auc <- function(m) if (m %in% cv_tbl$Model)  f3(cv_tbl$ROC[cv_tbl$Model == m])  else "n/a"
+te_auc <- function(m) if (m %in% perf_te$Model) f3(perf_te$AUC[perf_te$Model == m]) else "n/a"
+tr_auc <- function(m) if (m %in% perf_tr$Model) f3(perf_tr$AUC[perf_tr$Model == m]) else "n/a"
+
+gap_tbl <- cv_tbl %>%
+  select(Model, `CV AUC` = ROC, Sensitivity, Specificity) %>%
+  left_join(perf_tr %>% select(Model, `Train AUC` = AUC), by = "Model") %>%
+  left_join(perf_te %>% select(Model, `Test AUC` = AUC), by = "Model") %>%
+  mutate(`Train - CV gap` = `Train AUC` - `CV AUC`,
+         `CV - Test gap`  = `CV AUC` - `Test AUC`) %>%
+  arrange(desc(`CV AUC`))
+
+best_cv        <- max(cv_tbl$ROC)
+near_best      <- cv_tbl$Model[cv_tbl$ROC >= best_cv - 0.01]
+worst_model    <- cv_tbl$Model[which.min(cv_tbl$ROC)]
+auc_range      <- diff(range(cv_tbl$ROC))
+hi_spec_model  <- cv_tbl$Model[which.max(cv_tbl$Specificity)]
+lo_sens_model  <- cv_tbl$Model[which.min(cv_tbl$Sensitivity)]
+hi_sens_model  <- cv_tbl$Model[which.max(cv_tbl$Sensitivity)]
+big_gap_model  <- gap_tbl$Model[which.max(gap_tbl$`Train - CV gap`)]
+big_gap        <- max(gap_tbl$`Train - CV gap`)
+small_gap_model <- gap_tbl$Model[which.min(gap_tbl$`Train - CV gap`)]
+small_gap      <- min(gap_tbl$`Train - CV gap`)
+rank_cor       <- cor(gap_tbl$`CV AUC`, gap_tbl$`Test AUC`, method = "spearman")
+
+roc_cols <- grep("~ROC$", names(rs$values), value = TRUE)
+fold_sd  <- median(sapply(rs$values[roc_cols], sd))      # typical fold-to-fold SD of the AUC
+```
+
+### Penalised and latent-variable linear models
+
+**Elastic-net logistic regression (`glmnet`):** The model is an ordinary logistic regression whose coefficients are shrunk by a mixture of an L1 (lasso) and an L2 (ridge) penalty. The lasso part sets weak coefficients exactly to zero; the ridge part
+spreads weight across correlated predictors instead of giving all of it to one. This is well matched to the cohort: many predictors are weak, several are redundant, and the strongest effects are additive on the log-odds scale. Shrinkage lowers variance,
+and the logistic likelihood gives well-calibrated probabilities. Its weakness is that it can only see interactions and non-linear effects if they are supplied. Cross-validated AUC `r cv_auc("glmnet")`, test AUC `r te_auc("glmnet")`.
+
+**Partial least squares (`pls`):** Instead of using each predictor separately, PLS builds a small number of latent components, weighted combinations of the predictors that covary most with the outcome, and regresses on them. The gene, score and radiomics
+blocks collapse onto a few components, which stabilises the fit; a small number of components is usually enough here. Because it is a regularised linear model, its discrimination is close to `glmnet`. It differs in that the component scores are converted
+into class probabilities by a softmax rule, which are usually less well calibrated than logistic probabilities, and the components are not optimised for the likelihood. Cross-validated AUC `r cv_auc("pls")`, test AUC `r te_auc("pls")`.
+
+### Discriminant and probabilistic models
+
+**Regularised discriminant analysis (`rda`):** Each class (died, survived) is described as a multivariate normal distribution. A new patient is assigned to the class under which the predictors are more likely. The parameter `lambda` blends class-specific
+covariance matrices (`lambda = 0`, a quadratic boundary) with a single pooled matrix (`lambda = 1`, a linear boundary, as in linear discriminant analysis), and `gamma` shrinks the covariance further towards a diagonal matrix. With
+`r sum(tr_DF[[y_col]] == "Died")` deaths and `r length(X_cols)` predictors, class-specific covariance matrices are noisy, so a pooled covariance is expected to win. A linear discriminant is nearly equivalent to logistic regression when the class
+covariances are similar, which explains why `rda` performs close to `glmnet`. The Gaussian assumption is violated by the 0/1 and count predictors, but they carry limited signal, so the cost is small. Cross-validated AUC `r cv_auc("rda")`, test AUC
+`r te_auc("rda")`.
+
+**Naive Bayes (`nb`)**: Naive Bayes multiplies the class-conditional density of every predictor, estimated here with a kernel smoother, as if the predictors were independent given the outcome. That assumption fails in this cohort: the gene-expression
+block, the derived scores and the radiomics features are strongly correlated, so the same evidence is counted several times. The result is over-confident probabilities and a weaker ranking of patients. The many uninformative predictors each add a little
+noise to the product. Cross-validated AUC `r cv_auc("nb")`, test AUC `r te_auc("nb")`.
+
+### Distance- and centroid-based models
+
+**k-nearest neighbours (`knn`):** A patient is classified by a vote among the k most similar training patients in the standardised predictor space. There is no model to fit, and no way to down-weight irrelevant predictors: with `r length(X_cols)`
+dimensions, about half of them uninformative, distances are dominated by noise, and close neighbours are few (the curse of dimensionality). Probabilities are multiples of 1/k, which makes the ranking coarse and limits the AUC. Because most neighbours of an
+uncertain patient are survivors, the vote leans towards the majority class, which raises specificity and lowers sensitivity at the 0.5 threshold. Cross-validated AUC `r cv_auc("knn")`, test AUC `r te_auc("knn")`.
+
+**Nearest shrunken centroids (`pam`)**: The method computes a centroid for each class and shrinks each predictor's centroid difference towards zero by a threshold, removing predictors whose difference falls to zero. It then assigns a patient to the nearest
+centroid. It was designed for gene-expression data with thousands of predictors and few samples, where selection is essential. Here there are far more patients than predictors, so the selection helps little, and the diagonal-covariance assumption ignores
+the correlation between predictors, as naive Bayes does. Cross-validated AUC `r cv_auc("pam")`, test AUC `r te_auc("pam")`.
+
+### Tree ensembles
+
+**Gradient boosting (`gbm`)**: Shallow trees are added one at a time, each fitted to the errors of the current logistic model, and shrunk by a learning rate. Trees find non-linear effects and interactions automatically and are unaffected by scaling,
+skewness or outliers. On this cohort, however, the main signal is smooth and additive across many weak predictors, and a piecewise-constant tree needs many steps to approximate a straight-line effect. With fewer than a thousand patients the later trees
+partly fit noise, so boosting is not expected to beat a penalised linear model and shows a larger gap between training and cross-validated performance. Cross-validated AUC `r cv_auc("gbm")`, test AUC `r te_auc("gbm")`.
+
+**Extreme gradient boosting (`xgbTree`)**: XGBoost follows the same principle but adds explicit regularisation: penalties on the leaf weights, a minimum gain to make a split (`gamma`), a minimum node weight, and row and column subsampling. These usually
+make it more resistant to over-fitting than `gbm` on small data. It can exploit the age-by-performance-status interaction, but that interaction is a small part of the signal, so the gain over a linear model is limited. It is run through a custom `caret`
+model because the built-in method does not work with current `xgboost` releases. Cross-validated AUC `r cv_auc("xgbTree")`, test AUC `r te_auc("xgbTree")`.
+
+### Neural networks
+
+**Single-hidden-layer network (`nnet`)**: A small network combines the predictors into a few hidden units and passes them through a logistic output. Weight decay (an L2 penalty) keeps the weights small, so with few hidden units the model behaves like a
+regularised logistic regression with some extra flexibility, which explains a performance close to the linear models. It needs scaled inputs (provided by the recipe) and depends on the random starting weights. Cross-validated AUC `r cv_auc("nnet")`, test
+AUC `r te_auc("nnet")`.
+
+**Multilayer perceptron (`mlp`)**: The `RSNNS` perceptron is trained by standard back-propagation. In the tuning grid only the number of hidden units is varied, with no weight decay, so the only complexity control is the size of the hidden layer. That
+means less regularisation and higher variance than `nnet`, and results that depend on random starting weights, which `set.seed()` may not fully control. Its position in the ranking is therefore less reliable. Cross-validated AUC `r cv_auc("mlp")`, test AUC
+`r te_auc("mlp")`.
+
+## 11.4 What the performance pattern shows
+
+```{r disc-gap}
+kable(gap_tbl, digits = 3,
+      caption = "Cross-validated, training and test performance of each model (gaps = differences in AUC)")
+```
+
+```{r disc-family}
+fam <- c(glmnet = "Linear", pls = "Linear",
+         rda = "Discriminant / probabilistic", nb = "Discriminant / probabilistic",
+         knn = "Distance / centroid", pam = "Distance / centroid",
+         gbm = "Tree ensembles", xgbTree = "Tree ensembles",
+         nnet = "Neural networks", mlp = "Neural networks")
+
+fam_tbl <- gap_tbl %>%
+  mutate(Family = unname(fam[Model])) %>%
+  group_by(Family) %>%
+  summarise(Models = paste(Model, collapse = ", "),
+            `Mean CV AUC` = mean(`CV AUC`),
+            `Mean test AUC` = mean(`Test AUC`),
+            `Mean train - CV gap` = mean(`Train - CV gap`),
+            .groups = "drop") %>%
+  arrange(desc(`Mean CV AUC`))
+best_family  <- fam_tbl$Family[1]
+worst_family <- fam_tbl$Family[nrow(fam_tbl)]
+kable(fam_tbl, digits = 3, caption = "Performance by model family")
+```
+
+**Differences are small:** `r length(near_best)` of the `r nrow(cv_tbl)` models are within 0.01 AUC of the best (`r paste(near_best, collapse = ", ")`). The cross-validated AUC of all models spans only `r f3(auc_range)`, while the typical fold-to-fold
+standard deviation of the AUC is `r f3(fold_sd)`. Differences between the top models are therefore within noise and should not be over-interpreted.
+
+**Family pattern**: The family with the highest mean cross-validated AUC was **`r best_family`**, and the lowest was **`r worst_family`**. This is consistent with the structure described in section 11.1: with additive effects, correlated predictors and
+fewer than a thousand patients, models that shrink coefficients or share information across correlated predictors are favoured, and models that treat predictors independently (`nb`, `pam`) or rely on distances in a noisy space (`knn`) are disadvantaged.
+Flexible models (trees, networks) have no structural advantage because there is little non-linearity to find.
+
+**Over-fitting**: The gap between training and cross-validated AUC was largest for `r big_gap_model` (`r f3(big_gap)`) and smallest for `r small_gap_model` (`r f3(small_gap)`). Flexible models can reproduce the training data closely, which is why their
+training AUC overstates their performance, while heavily regularised models have small gaps.
+
+**Sensitivity versus specificity**: At the default 0.5 threshold, `r hi_spec_model` had the highest cross-validated specificity (`r f2(max(cv_tbl$Specificity))`) and `r lo_sens_model` the lowest sensitivity (`r f2(min(cv_tbl$Sensitivity))`), whereas
+`r hi_sens_model` had the highest sensitivity (`r f2(max(cv_tbl$Sensitivity))`). A high specificity with a low sensitivity means that a model rarely flags a patient as high-risk. It is a property of where the model sits on its ROC curve, and it can be
+changed by moving the threshold (section 10.4); the AUC is the fairer comparison.
+
+**Test set versus cross-validation**: The Spearman correlation between the cross-validated and test AUCs across the models is `r f2(rank_cor)`. The test set has only `r nrow(te_DF)` patients, so its ranking of similar models is noisy, which is why the
+final model was selected on cross-validation.
+
+## 11.5 Practical considerations
+
+**Interpretability**: `glmnet` provides coefficients and odds ratios; `pls` and `rda` provide weights and discriminant directions; tree ensembles and neural networks need importance measures. When several models perform equally well, the interpretable one
+is preferable in a clinical setting.
+
+**Calibration**: Logistic-type models give probabilities that can be used directly. Scores from `pls`, `knn`, `pam` and boosted trees are often mis-calibrated and may need recalibration before being read as risks.
+
+**Cost**: `glmnet`, `pls` and `rda` train in seconds; boosted trees and networks require large tuning grids. With no accuracy benefit, the extra cost is not justified.
+
+**Choosing among tied models**: A sensible rule is to choose the simplest model among those within one standard error of the best cross-validated AUC.
+
+## 11.6 Limitations
+
+- The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.
+
+- Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.
+
+- Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.
+
+# 12. Conclusion
+
+Ten classification algorithms were compared with 5-fold cross-validation on a synthetic cohort of `r nrow(DF)` head and neck cancer patients. All models discriminated death within five years well above chance (cross-validated AUC from
+`r f3(min(cv_tbl$ROC))` to `r f3(max(cv_tbl$ROC))`), and the leading models differed by less than the fold-to-fold variation. The selected model, **`r best_name`**, achieved a cross-validated AUC of `r f3(max(cv_tbl$ROC))` and an AUC of
+`r f3(as.numeric(pROC::auc(roc_te)))` (95% CI `r f3(ci_te[1])` to `r f3(ci_te[3])`) on the held-out test set. The family with the highest mean cross-validated AUC was `r best_family`; this is consistent with a signal that is mainly additive, correlated
+predictors and a small sample (section 11.1), conditions that favour regularised models over flexible ones.
+
+# Session information
+
+```{r session}
+if (use_parallel) parallel::stopCluster(cl)
+sessionInfo()
+```
