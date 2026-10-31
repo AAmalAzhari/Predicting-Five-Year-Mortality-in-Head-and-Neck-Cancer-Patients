@@ -1,9 +1,10 @@
-# Predicting Five-Year Mortality in Head and Neck Cancer Patients: A Machine Learning Pipeline in R
+# Predicting Five-Year Mortality in Head and Neck Cancer Patients: A Machine Learning Pipeline in R using `caret`
 
 An end-to-end binary classification project using `caret` and `recipes` on a **synthetic multimodal cohort**
 (1,200 patients, 45 predictors). Ten algorithms are tuned with cross-validation, compared on AUC, and the
 selected model is evaluated once on a held-out test set.
 
+[View the rendered report](https://aamalazhari.github.io/Predicting-Five-Year-Mortality-in-Head-and-Neck-Cancer-Patients/)
 
 ## Project Overview
 
@@ -49,13 +50,13 @@ Full tables are in [`outputs/`](outputs/).
 ├── data/synthetic_hnscc_data.csv             # synthetic cohort (safe to share)
 ├── data/README.md                            # description of the data
 ├── docs/index.html                           # rendered report (GitHub Pages)
-├── outputs/                                  # result tables and graphs (PNG)
+├── outputs/                                  # result graphs (PNG)
 └── renv.lock                                 # package versions
 ```
 
 ## Data
 
-The data is **synthetic**, mimicing the problems of clinical data (missing values, impossible data-entry errors, skewed and correlated variables). 
+The data is synthetic, mimicing the problems of clinical data (missing values, impossible data-entry errors, skewed and correlated variables). 
 
 
 ## How to Reproduce
