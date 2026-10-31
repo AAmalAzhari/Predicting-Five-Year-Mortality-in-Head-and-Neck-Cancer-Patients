@@ -1,6 +1,6 @@
 ---
 title: "Predicting Five-Year Mortality in Head and Neck Cancer Patients"
-subtitle: "An end-to-end machine learning pipeline in R (caret + recipes) on a multimodal cohort"
+subtitle: "An end-to-end machine learning pipeline in R using caret"
 author: "Abdulrahman Alazhari"
 format:
   html:
@@ -898,7 +898,7 @@ this structure; flexible models have to learn it.
 ## 11.2 How the models differ
 
 | Model | Core idea | Decision boundary | Treatment of correlated predictors | Main safeguard against over-fitting | Main risk on this dataset |
-|:---|:---|:---|:---|:---|:---|
+|:------------------------------------------|:------------------------------------------|:------------------------------------------|:------------------------------------------|:------------------------------------------|:------------------------------------------|
 | `glmnet` | Logistic regression with an elastic-net penalty | Linear in the log-odds | Ridge part shares weight; lasso part selects | `alpha`, `lambda` | Cannot find interactions or non-linear effects |
 | `pls` | Regress on a few latent components that maximise covariance with the outcome | Linear | Built for collinearity | Number of components | Scores are not true probabilities; ignores non-linearity |
 | `rda` | Gaussian classes; `lambda` blends class-specific and pooled covariances (LDA at 1), `gamma` shrinks towards a diagonal | Linear to quadratic | Models the full covariance | `gamma`, `lambda` | Gaussian assumption; noisy covariances |
@@ -1053,11 +1053,11 @@ is preferable in a clinical setting.
 
 ## 11.6 Limitations
 
-- The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.
+**Data Used:** The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.
 
-- Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.
+**Models Tested:** Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.
 
-- Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.
+**External Validation:** Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.
 
 # 12. Conclusion
 

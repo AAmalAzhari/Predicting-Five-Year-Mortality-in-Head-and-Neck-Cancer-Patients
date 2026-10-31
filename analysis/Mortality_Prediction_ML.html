@@ -2275,7 +2275,7 @@ vertical-align: -.125em;
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
 <div class="quarto-title-block"><div><h1 class="title">Predicting Five-Year Mortality in Head and Neck Cancer Patients</h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li><li><hr class="dropdown-divider"></li><li><a id="quarto-view-source" class="dropdown-item" href="javascript:void(0)" role="button">View Source</a></li></ul></div></div>
-<p class="subtitle lead">An end-to-end machine learning pipeline in R (caret + recipes) on a multimodal cohort</p>
+<p class="subtitle lead">An end-to-end machine learning pipeline in R using caret</p>
 </div>
 
 
@@ -5404,11 +5404,9 @@ Prediction Died Survived
 </section>
 <section id="limitations" class="level2">
 <h2 class="anchored" data-anchor-id="limitations">11.6 Limitations</h2>
-<ul>
-<li><p>The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.</p></li>
-<li><p>Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.</p></li>
-<li><p>Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.</p></li>
-</ul>
+<p><strong>Data Used:</strong> The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.</p>
+<p><strong>Models Tested:</strong> Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.</p>
+<p><strong>External Validation:</strong> Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.</p>
 </section>
 </section>
 <section id="conclusion" class="level1">
@@ -5947,7 +5945,7 @@ loaded via a namespace (and not attached):
   </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb75" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb75-1"><a href="#cb75-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
 <span id="cb75-2"><a href="#cb75-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> &quot;Predicting Five-Year Mortality in Head and Neck Cancer Patients&quot;</span></span>
-<span id="cb75-3"><a href="#cb75-3" aria-hidden="true" tabindex="-1"></a><span class="an">subtitle:</span><span class="co"> &quot;An end-to-end machine learning pipeline in R (caret + recipes) on a multimodal cohort&quot;</span></span>
+<span id="cb75-3"><a href="#cb75-3" aria-hidden="true" tabindex="-1"></a><span class="an">subtitle:</span><span class="co"> &quot;An end-to-end machine learning pipeline in R using caret&quot;</span></span>
 <span id="cb75-4"><a href="#cb75-4" aria-hidden="true" tabindex="-1"></a><span class="an">author:</span><span class="co"> &quot;Abdulrahman Alazhari&quot;</span></span>
 <span id="cb75-5"><a href="#cb75-5" aria-hidden="true" tabindex="-1"></a><span class="an">format:</span></span>
 <span id="cb75-6"><a href="#cb75-6" aria-hidden="true" tabindex="-1"></a><span class="co">  html:</span></span>
@@ -6845,7 +6843,7 @@ loaded via a namespace (and not attached):
 <span id="cb75-898"><a href="#cb75-898" aria-hidden="true" tabindex="-1"></a><span class="fu">## 11.2 How the models differ</span></span>
 <span id="cb75-899"><a href="#cb75-899" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb75-900"><a href="#cb75-900" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Model <span class="pp">|</span> Core idea <span class="pp">|</span> Decision boundary <span class="pp">|</span> Treatment of correlated predictors <span class="pp">|</span> Main safeguard against over-fitting <span class="pp">|</span> Main risk on this dataset <span class="pp">|</span></span>
-<span id="cb75-901"><a href="#cb75-901" aria-hidden="true" tabindex="-1"></a><span class="pp">|:---|:---|:---|:---|:---|:---|</span></span>
+<span id="cb75-901"><a href="#cb75-901" aria-hidden="true" tabindex="-1"></a><span class="pp">|:------------------------------------------|:------------------------------------------|:------------------------------------------|:------------------------------------------|:------------------------------------------|:------------------------------------------|</span></span>
 <span id="cb75-902"><a href="#cb75-902" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`glmnet`</span> <span class="pp">|</span> Logistic regression with an elastic-net penalty <span class="pp">|</span> Linear in the log-odds <span class="pp">|</span> Ridge part shares weight; lasso part selects <span class="pp">|</span> <span class="in">`alpha`</span>, <span class="in">`lambda`</span> <span class="pp">|</span> Cannot find interactions or non-linear effects <span class="pp">|</span></span>
 <span id="cb75-903"><a href="#cb75-903" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`pls`</span> <span class="pp">|</span> Regress on a few latent components that maximise covariance with the outcome <span class="pp">|</span> Linear <span class="pp">|</span> Built for collinearity <span class="pp">|</span> Number of components <span class="pp">|</span> Scores are not true probabilities; ignores non-linearity <span class="pp">|</span></span>
 <span id="cb75-904"><a href="#cb75-904" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`rda`</span> <span class="pp">|</span> Gaussian classes; <span class="in">`lambda`</span> blends class-specific and pooled covariances (LDA at 1), <span class="in">`gamma`</span> shrinks towards a diagonal <span class="pp">|</span> Linear to quadratic <span class="pp">|</span> Models the full covariance <span class="pp">|</span> <span class="in">`gamma`</span>, <span class="in">`lambda`</span> <span class="pp">|</span> Gaussian assumption; noisy covariances <span class="pp">|</span></span>
@@ -7000,11 +6998,11 @@ loaded via a namespace (and not attached):
 <span id="cb75-1053"><a href="#cb75-1053" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb75-1054"><a href="#cb75-1054" aria-hidden="true" tabindex="-1"></a><span class="fu">## 11.6 Limitations</span></span>
 <span id="cb75-1055"><a href="#cb75-1055" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb75-1056"><a href="#cb75-1056" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.</span>
+<span id="cb75-1056"><a href="#cb75-1056" aria-hidden="true" tabindex="-1"></a>**Data Used:** The data are synthetic, so this report only illustrates how to apply machine learning models. Its results are not clinical evidence, and the model must not be used to predict outcomes for real patients.</span>
 <span id="cb75-1057"><a href="#cb75-1057" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb75-1058"><a href="#cb75-1058" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.</span>
+<span id="cb75-1058"><a href="#cb75-1058" aria-hidden="true" tabindex="-1"></a>**Models Tested:** Only discrimination, calibration and threshold-based metrics were assessed. Survival models (for example Cox regression) use follow-up time and censoring, which a binary five-year outcome ignores.</span>
 <span id="cb75-1059"><a href="#cb75-1059" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb75-1060"><a href="#cb75-1060" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.</span>
+<span id="cb75-1060"><a href="#cb75-1060" aria-hidden="true" tabindex="-1"></a>**External Validation:** Validation was internal only. No external validation on an independent cohort (another hospital, country or time period) was possible, so performance in other populations is unknown.</span>
 <span id="cb75-1061"><a href="#cb75-1061" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb75-1062"><a href="#cb75-1062" aria-hidden="true" tabindex="-1"></a><span class="fu"># 12. Conclusion</span></span>
 <span id="cb75-1063"><a href="#cb75-1063" aria-hidden="true" tabindex="-1"></a></span>
