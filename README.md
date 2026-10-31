@@ -22,7 +22,7 @@ selected model is evaluated once on a held-out test set.
 k-nearest neighbours (`knn`), shrunken centroids, gradient boosting (`gbm`), XGBoost (custom `caret` model),
 neural networks (`nnet`, `mlp`).
 
-## Key results
+## Key Results for the Final Model
 
 
 | Item | Value |
@@ -47,10 +47,8 @@ neural networks (`nnet`, `mlp`).
 ├── analysis/Mortality_Prediction_ML.qmd      # full report (code + narrative)
 ├── scripts/Mortality_Prediction_ML.R         # code only, extracted from the report
 ├── data/synthetic_hnscc_data.csv             # synthetic cohort (safe to share)
-├── data/README.md                            # description of the data
 ├── docs/index.html                           # rendered report (GitHub Pages)
-├── outputs/                                  # result graphs (PNG)
-└── renv.lock                                 # package versions
+└──outputs/                                  # result graphs (PNG)
 ```
 
 ## Data
