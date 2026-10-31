@@ -32,7 +32,6 @@ neural networks (`nnet`, `mlp`).
 | Test AUC | 0.78|
 | Sensitivity / specificity at threshold 0.5 (test) | 0.60 / 0.85 |
 
-Full tables are in [`outputs/`](outputs/).
 
 ## Skills Demonstrated
 
